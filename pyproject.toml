@@ -1,0 +1,11 @@
+[project]
+name = "lerobot-datacrunch-train"
+version = "0.1.0"
+description = "Tool to train a lerobot model on a spot datacrunch instance"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "datacrunch>=0.3.0",
+    "paramiko>=3.0.0",
+    "python-dotenv>=1.0.0",
+]

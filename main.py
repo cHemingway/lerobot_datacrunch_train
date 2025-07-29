@@ -189,7 +189,7 @@ class DatacrunchManager:
             logger.info(f"Creating instance of type: {instance_type['name']}")
 
             # Hack: We can't find in advance which locations are available, so try them all
-            for location in ["FIN-01", "FIN-02", "ICE-01"]:
+            for location in ["FIN-01", "FIN-02", "FIN-03", "ICE-01"]:
                 logger.debug(f"Trying location: {location}")
             
                 # Simplified instance config - remove potentially problematic parameters

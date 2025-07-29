@@ -25,8 +25,8 @@ logger = logging.getLogger(__name__)
 
 class DatacrunchManager:
     """Manages Datacrunch spot instances for LeRobot training"""
-    
-    def __init__(self, client_id: str, client_secret: str, price_cap: float = 1.0, required_gpu: str = "H100"):
+
+    def __init__(self, client_id: str, client_secret: str, price_cap: float = 1.0, required_gpu: str = "H100", image_name: str = "ubuntu-24.04-cuda-12.8-open"):
         """
         Initialize the Datacrunch manager
         
@@ -42,7 +42,8 @@ class DatacrunchManager:
         self.instance_id = None
         self.instance_ip = None
         self.startup_script_id = None
-        
+        self.image_name = image_name
+
     def get_available_instances(self) -> List[Any]:
         """Get available instance types with pricing"""
         try:
@@ -117,6 +118,11 @@ class DatacrunchManager:
             
             self.startup_script_id = startup_script.id
             logger.info(f"Startup script created with ID: {self.startup_script_id}")
+
+            # Get the SSH key IDs
+            # Get all SSH keys id's
+            ssh_keys = self.client.ssh_keys.get()
+            ssh_keys_ids = list(map(lambda ssh_key: ssh_key.id, ssh_keys))
             
             # Create the instance
             logger.info(f"Creating instance of type: {instance_type['name']}")
@@ -125,12 +131,12 @@ class DatacrunchManager:
             instance_config = {
                 'instance_type': instance_type['instance_type'],
                 'image': 'ubuntu-24.04-cuda-12.8-open',
-                'ssh_key_ids': [],
+                'ssh_key_ids': ssh_keys_ids,  # Use the SSH keys we fetched
                 'hostname': 'lerobot-training',
                 'description': 'LeRobot training instance',
                 'is_spot': True,
-                'startup_script_id': startup_script.id
-                # Removed location parameter as it might cause issues
+                'startup_script_id': startup_script.id,
+                'location': 'ICE-01' # TODO: Find a way to set this dynamically
             }
             
             response = self.client.instances.create(**instance_config)
@@ -291,7 +297,8 @@ def main():
     # Configuration
     price_cap = float(os.getenv('PRICE_CAP', '1.0'))
     required_gpu = os.getenv('REQUIRED_GPU', 'H100')
-    
+    image_name = os.getenv('IMAGE_NAME', 'ubuntu-24.04-cuda-12.8-open')
+
     # Validate required environment variables
     missing_vars = []
     if not client_id:
@@ -302,7 +309,9 @@ def main():
         missing_vars.append('HUGGINGFACE_TOKEN')
     if not wandb_token:
         missing_vars.append('WANDB_TOKEN')
-        
+    if not image_name:
+        missing_vars.append('IMAGE_NAME')
+
     if missing_vars:
         logger.error("Missing required environment variables:")
         for var in missing_vars:
@@ -315,8 +324,9 @@ def main():
     assert client_secret is not None  
     assert hf_token is not None
     assert wandb_token is not None
-    
-    manager = DatacrunchManager(client_id, client_secret, price_cap, required_gpu)
+    assert image_name is not None
+
+    manager = DatacrunchManager(client_id, client_secret, price_cap, required_gpu, image_name)
     
     try:
         # Create instance

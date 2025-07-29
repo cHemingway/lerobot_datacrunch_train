@@ -3,6 +3,12 @@
 # Variables are loaded in from .env file by main.py
 set -e
 
+# Log output to install_lerobot_log.out
+# From https://serverfault.com/a/103569
+exec 3>&1 4>&2
+trap 'exec 2>&4 1>&3' 0 1 2 3
+exec 1>/root/install_lerobot_log.out 2>&1
+
 apt-get update
 apt-get install -y curl git btop ffmpeg # FFmpeg is needed for lerobot to load videos
 curl -LsSf https://astral.sh/uv/install.sh | sh

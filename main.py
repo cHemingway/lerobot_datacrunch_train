@@ -12,6 +12,7 @@ import logging
 from typing import Dict, List, Optional, Any
 import paramiko
 from datacrunch import DataCrunchClient
+from datacrunch.exceptions import APIException
 from dotenv import load_dotenv
 
 # Load environment variables from .env file
@@ -186,21 +187,33 @@ class DatacrunchManager:
             
             # Create the instance
             logger.info(f"Creating instance of type: {instance_type['name']}")
+
+            # Hack: We can't find in advance which locations are available, so try them all
+            for location in ["FIN-01", "FIN-02", "ICE-01"]:
+                logger.debug(f"Trying location: {location}")
             
-            # Simplified instance config - remove potentially problematic parameters
-            instance_config = {
-                'instance_type': instance_type['instance_type'],
-                'image': 'ubuntu-24.04-cuda-12.8-open',
-                'ssh_key_ids': ssh_keys_ids,  # Use the SSH keys we fetched
-                'hostname': 'lerobot-training',
-                'description': 'LeRobot training instance',
-                'is_spot': True,
-                'startup_script_id': startup_script.id,
-                'location': 'ICE-01' # TODO: Find a way to set this dynamically
-            }
+                # Simplified instance config - remove potentially problematic parameters
+                instance_config = {
+                    'instance_type': instance_type['instance_type'],
+                    'image': 'ubuntu-24.04-cuda-12.8-open',
+                    'ssh_key_ids': ssh_keys_ids,  # Use the SSH keys we fetched
+                    'hostname': 'lerobot-training',
+                    'description': 'LeRobot training instance',
+                    'is_spot': True,
+                    'startup_script_id': startup_script.id,
+                    'location': location
+                }
             
-            response = self.client.instances.create(**instance_config)
-            self.instance_id = response.id
+                try:
+                    response = self.client.instances.create(**instance_config)
+                except APIException as e:
+                    logger.debug(f"Failed to create instance in {location}: {e}")
+                    continue  # Try the next location if this one fails
+                self.instance_id = response.id
+                break  # Exit loop if instance creation was successful
+            if not self.instance_id:
+                logger.error("Failed to create instance in all locations")
+                return False
             
             logger.info(f"Instance created with ID: {self.instance_id}")
             return True

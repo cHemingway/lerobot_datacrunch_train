@@ -22,7 +22,7 @@ def list_running_instances(client_id: str, client_secret: str):
         client = DataCrunchClient(client_id, client_secret)
         instances = client.instances.get()
         
-        running_instances = [i for i in instances if i.get('status') == 'running']
+        running_instances = [i for i in instances if i.status == 'running']
         
         if not running_instances:
             print("No running instances found.")
@@ -30,11 +30,14 @@ def list_running_instances(client_id: str, client_secret: str):
             
         print("Running Instances:")
         print("=" * 80)
-        print(f"{'ID':<15} {'Name':<20} {'IP':<15} {'Type':<20} {'Status':<10}")
+        print(f"{'ID':<15} {'Hostname':<20} {'IP':<15} {'Type':<20} {'Status':<10}")
         print("-" * 80)
         
         for instance in running_instances:
-            print(f"{instance['id']:<15} {instance.get('name', 'N/A'):<20} {instance.get('ip', 'N/A'):<15} {instance.get('instance_type', 'N/A'):<20} {instance['status']:<10}")
+            # Instance objects have direct properties, not dictionary access
+            instance_ip = instance.ip if instance.ip else 'N/A'
+            hostname = instance.hostname if hasattr(instance, 'hostname') and instance.hostname else 'N/A'
+            print(f"{instance.id:<15} {hostname:<20} {instance_ip:<15} {instance.instance_type:<20} {instance.status:<10}")
             
         return running_instances
         
@@ -108,7 +111,7 @@ def main():
                 instances = list_running_instances(client_id, client_secret)
                 
                 for instance in instances:
-                    instance_ip = instance.get('ip')
+                    instance_ip = instance.ip
                     if instance_ip:
                         print(f"\nChecking training on {instance_ip}...")
                         check_training_progress(instance_ip, ssh_key_path)

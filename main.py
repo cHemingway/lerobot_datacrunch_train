@@ -2,26 +2,7 @@
 """
 Datacrunch Spot Instance Manager for LeRobot Training
 
-This script manages Datacru        try:
-            # Create the instance
-            logger.info(f"Creating instance of type: {instance_type['instance_type']}")
-            
-            # Use the correct API method for creating instances
-            instance = self.client.instances.create(
-                instance_type=instance_type['instance_type'],
-                image='ubuntu-24.04-cuda-12.8-open-docker',
-                hostname='lerobot-training',
-                description='LeRobot training instance',
-                ssh_key_ids=[],  # Add your SSH key IDs here if you have any
-                is_spot=True,
-                startup_script_id=None  # We'll use inline startup script if supported
-            )
-            
-            self.instance_id = instance.id
-            
-            logger.info(f"Instance created with ID: {self.instance_id}")
-            return Trueor training LeRobot models.
-It checks pricing, creates instances with GPU requirements, and manages remote execution.
+See README.md for details on how to use this script.
 """
 
 import os
@@ -76,7 +57,7 @@ class DatacrunchManager:
         
         for instance in instances:
             # Get GPU information from InstanceType object
-            gpu_name = instance.gpu.get('description', '')
+            gpu_name = instance.gpu['description'] if instance.gpu else ''
             
             if self.required_gpu.lower() not in gpu_name.lower():
                 continue
@@ -141,7 +122,7 @@ class DatacrunchManager:
             }
             
             response = self.client.instances.create(**instance_config)
-            self.instance_id = response['id']
+            self.instance_id = response.id
             
             logger.info(f"Instance created with ID: {self.instance_id}")
             return True
@@ -159,11 +140,21 @@ class DatacrunchManager:
         
         while time.time() - start_time < timeout:
             try:
-                instance = self.client.instances.get(self.instance_id)
-                status = instance.get('status', '')
+                instances = self.client.instances.get()
+                instance = None
+                for inst in instances:
+                    if inst.id == self.instance_id:
+                        instance = inst
+                        break
+                
+                if not instance:
+                    logger.error(f"Instance {self.instance_id} not found")
+                    return False
+                
+                status = instance.status
                 
                 if status == 'running':
-                    self.instance_ip = instance.get('ip')
+                    self.instance_ip = instance.ip
                     if self.instance_ip:
                         logger.info(f"Instance ready! IP: {self.instance_ip}")
                         return True
@@ -255,7 +246,7 @@ class DatacrunchManager:
         """Delete the instance"""
         if self.instance_id:
             try:
-                self.client.instances.delete(self.instance_id)
+                self.client.instances.action(self.instance_id, self.client.constants.instance_actions.DELETE)
                 logger.info(f"Instance {self.instance_id} deletion requested")
             except Exception as e:
                 logger.error(f"Failed to delete instance: {e}")

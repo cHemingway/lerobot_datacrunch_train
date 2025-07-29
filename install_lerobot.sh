@@ -1,5 +1,6 @@
 #!/bin/bash
 # Assumes datacrunch h100 spot instance ubuntu-24-04-cuda-12-8-open-1h100*
+# Variables are loaded in from .env file by main.py
 set -e
 
 apt-get update

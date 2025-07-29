@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 class DatacrunchManager:
     """Manages Datacrunch spot instances for LeRobot training"""
 
-    def __init__(self, client_id: str, client_secret: str, price_cap: float = 1.0, required_gpu: str = "H100", image_name: str = "ubuntu-24.04-cuda-12.8-open"):
+    def __init__(self, client_id: str, client_secret: str, price_cap: float = 1.0, required_gpu: str = "H100", image_name: str = "ubuntu-24.04-cuda-12.8-open", ssh_key_path: str = ""):
         """
         Initialize the Datacrunch manager
         
@@ -35,6 +35,8 @@ class DatacrunchManager:
             client_secret: Datacrunch client secret
             price_cap: Maximum price per hour in USD
             required_gpu: Required GPU type (e.g., "H100", "RTX4090")
+            image_name: OS image name to use
+            ssh_key_path: Path to SSH private key file
         """
         self.client = DataCrunchClient(client_id, client_secret)
         self.price_cap = price_cap
@@ -43,6 +45,64 @@ class DatacrunchManager:
         self.instance_ip = None
         self.startup_script_id = None
         self.image_name = image_name
+        self.ssh_key_path = self._find_ssh_key_path(ssh_key_path)
+
+    def _find_ssh_key_path(self, provided_path: str) -> str:
+        """Find SSH private key file, checking common locations"""
+        if provided_path and os.path.exists(provided_path):
+            logger.info(f"Using provided SSH key: {provided_path}")
+            return provided_path
+        
+        # Common SSH key locations to check
+        common_locations = [
+            os.path.expanduser("~/.ssh/id_rsa"),
+            os.path.expanduser("~/.ssh/id_ed25519"),
+            os.path.expanduser("~/.ssh/id_ecdsa"),
+            os.path.expanduser("~/.ssh/datacrunch"),
+            os.path.expanduser("~/.ssh/datacrunch_rsa"),
+            os.path.expanduser("~/.ssh/datacrunch_ed25519"),
+        ]
+        
+        for key_path in common_locations:
+            if os.path.exists(key_path):
+                logger.info(f"Found SSH key at: {key_path}")
+                return key_path
+        
+        logger.error("No SSH private key found. Please ensure you have an SSH key available.")
+        logger.error("Checked locations:")
+        for location in common_locations:
+            logger.error(f"  - {location}")
+        logger.error("You can specify a custom path with SSH_KEY_PATH environment variable")
+        
+        return ""
+
+    def validate_ssh_setup(self) -> bool:
+        """Validate that SSH key setup is properly configured"""
+        if not self.ssh_key_path:
+            logger.error("No SSH private key found")
+            return False
+        
+        if not os.path.exists(self.ssh_key_path):
+            logger.error(f"SSH key file does not exist: {self.ssh_key_path}")
+            return False
+        
+        # Check file permissions (should be 600 or 400)
+        try:
+            import stat
+            file_stat = os.stat(self.ssh_key_path)
+            file_mode = stat.filemode(file_stat.st_mode)
+            permissions = oct(file_stat.st_mode)[-3:]
+            
+            if permissions not in ['600', '400']:
+                logger.warning(f"SSH key file has permissive permissions: {permissions}")
+                logger.warning("Consider running: chmod 600 {self.ssh_key_path}")
+            
+            logger.info(f"SSH key validated: {self.ssh_key_path} (permissions: {permissions})")
+            return True
+            
+        except Exception as e:
+            logger.warning(f"Could not check SSH key permissions: {e}")
+            return True  # Don't fail validation for permission check issues
 
     def get_available_instances(self) -> List[Any]:
         """Get available instance types with pricing"""
@@ -195,9 +255,13 @@ class DatacrunchManager:
         logger.error("Timeout waiting for instance to be ready")
         return False
     
-    def wait_for_lerobot_installation(self, ssh_key_path: str, timeout: int = 1800) -> bool:
+    def wait_for_lerobot_installation(self, timeout: int = 1800) -> bool:
         """Wait for LeRobot installation to complete via SSH"""
         if not self.instance_ip:
+            return False
+        
+        if not self.ssh_key_path:
+            logger.error("SSH key path not available for connection")
             return False
             
         start_time = time.time()
@@ -207,12 +271,8 @@ class DatacrunchManager:
                 ssh = paramiko.SSHClient()
                 ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
                 
-                # Connect with SSH key or password
-                if ssh_key_path and os.path.exists(ssh_key_path):
-                    ssh.connect(self.instance_ip, username='root', key_filename=ssh_key_path, timeout=10)
-                else:
-                    # For simplicity, using password auth - in production use SSH keys
-                    ssh.connect(self.instance_ip, username='root', password='datacrunch', timeout=10)
+                # Connect with SSH key only
+                ssh.connect(self.instance_ip, username='root', key_filename=self.ssh_key_path, timeout=10)
                 
                 # Check if installation is complete
                 stdin, stdout, stderr = ssh.exec_command('test -f /root/installed_lerobot && echo "ready"')
@@ -234,20 +294,21 @@ class DatacrunchManager:
         logger.error("Timeout waiting for LeRobot installation")
         return False
     
-    def copy_and_run_training_script(self, ssh_key_path: str) -> bool:
+    def copy_and_run_training_script(self) -> bool:
         """Copy training script to instance and execute it"""
         if not self.instance_ip:
+            return False
+        
+        if not self.ssh_key_path:
+            logger.error("SSH key path not available for connection")
             return False
             
         try:
             ssh = paramiko.SSHClient()
             ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
             
-            # Connect
-            if ssh_key_path and os.path.exists(ssh_key_path):
-                ssh.connect(self.instance_ip, username='root', key_filename=ssh_key_path)
-            else:
-                ssh.connect(self.instance_ip, username='root', password='datacrunch')
+            # Connect with SSH key only
+            ssh.connect(self.instance_ip, username='root', key_filename=self.ssh_key_path)
             
             # Copy training script
             sftp = ssh.open_sftp()
@@ -326,7 +387,13 @@ def main():
     assert wandb_token is not None
     assert image_name is not None
 
-    manager = DatacrunchManager(client_id, client_secret, price_cap, required_gpu, image_name)
+    manager = DatacrunchManager(client_id, client_secret, price_cap, required_gpu, image_name, ssh_key_path)
+    
+    # Validate SSH key is available and properly configured
+    if not manager.validate_ssh_setup():
+        logger.error("SSH key validation failed. Instance creation requires SSH key authentication.")
+        logger.error("Please ensure you have a properly configured SSH key.")
+        sys.exit(1)
     
     try:
         # Create instance
@@ -344,14 +411,14 @@ def main():
         
         # Wait for LeRobot installation
         logger.info("Waiting for LeRobot installation to complete...")
-        if not manager.wait_for_lerobot_installation(ssh_key_path):
+        if not manager.wait_for_lerobot_installation():
             logger.error("LeRobot installation failed or timed out")
             manager.cleanup_instance()
             sys.exit(1)
         
         # Copy and run training script
         logger.info("Copying and running training script...")
-        if not manager.copy_and_run_training_script(ssh_key_path):
+        if not manager.copy_and_run_training_script():
             logger.error("Failed to start training")
             manager.cleanup_instance()
             sys.exit(1)

@@ -41,6 +41,7 @@ class DatacrunchManager:
         self.required_gpu = required_gpu
         self.instance_id = None
         self.instance_ip = None
+        self.startup_script_id = None
         
     def get_available_instances(self) -> List[Any]:
         """Get available instance types with pricing"""
@@ -104,9 +105,18 @@ class DatacrunchManager:
         if not instance_type:
             return False
             
-        startup_script = self.create_startup_script(hf_token, wandb_token)
+        startup_script_content = self.create_startup_script(hf_token, wandb_token)
         
         try:
+            # First, create the startup script
+            logger.info("Creating startup script...")
+            startup_script = self.client.startup_scripts.create(
+                name='lerobot-install-script',
+                script=startup_script_content
+            )
+            
+            self.startup_script_id = startup_script.id
+            
             # Create the instance
             logger.info(f"Creating instance of type: {instance_type['name']}")
             
@@ -117,7 +127,7 @@ class DatacrunchManager:
                 'hostname': 'lerobot-training',
                 'description': 'LeRobot training instance',
                 'is_spot': True,
-                'startup_script': startup_script,
+                'startup_script_id': startup_script.id,
                 'location': 'FIN-01'  # Finland datacenter, adjust as needed
             }
             
@@ -243,13 +253,20 @@ class DatacrunchManager:
             return False
     
     def cleanup_instance(self):
-        """Delete the instance"""
+        """Delete the instance and startup script"""
         if self.instance_id:
             try:
                 self.client.instances.action(self.instance_id, self.client.constants.instance_actions.DELETE)
                 logger.info(f"Instance {self.instance_id} deletion requested")
             except Exception as e:
                 logger.error(f"Failed to delete instance: {e}")
+        
+        if self.startup_script_id:
+            try:
+                self.client.startup_scripts.delete_by_id(self.startup_script_id)
+                logger.info(f"Startup script {self.startup_script_id} deleted")
+            except Exception as e:
+                logger.error(f"Failed to delete startup script: {e}")
 
 
 def main():

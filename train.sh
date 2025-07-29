@@ -13,6 +13,7 @@ python -m lerobot.scripts.train \
   --policy.repo_id=cHemingway/lerobot_move_purple_tape \
   --batch_size=64 \
   --steps=20000 \
+  --save_freq=2500 \
   --num_workers=16 \
   --wandb.enable=true 
 

@@ -111,24 +111,26 @@ class DatacrunchManager:
             # First, create the startup script
             logger.info("Creating startup script...")
             startup_script = self.client.startup_scripts.create(
-                name='lerobot-install-script',
+                name=f'lerobot-install-{int(time.time())}',  # Add timestamp to avoid name conflicts
                 script=startup_script_content
             )
             
             self.startup_script_id = startup_script.id
+            logger.info(f"Startup script created with ID: {self.startup_script_id}")
             
             # Create the instance
             logger.info(f"Creating instance of type: {instance_type['name']}")
             
+            # Simplified instance config - remove potentially problematic parameters
             instance_config = {
                 'instance_type': instance_type['instance_type'],
-                'image': 'ubuntu-24.04-cuda-12.8-open-docker',  # Ubuntu with CUDA
-                'ssh_key_ids': [],  # Add your SSH key ID here if you have one
+                'image': 'ubuntu-24.04-cuda-12.8-open',
+                'ssh_key_ids': [],
                 'hostname': 'lerobot-training',
                 'description': 'LeRobot training instance',
                 'is_spot': True,
-                'startup_script_id': startup_script.id,
-                'location': 'FIN-01'  # Finland datacenter, adjust as needed
+                'startup_script_id': startup_script.id
+                # Removed location parameter as it might cause issues
             }
             
             response = self.client.instances.create(**instance_config)
@@ -139,6 +141,14 @@ class DatacrunchManager:
             
         except Exception as e:
             logger.error(f"Failed to create instance: {e}")
+            # Clean up startup script if instance creation failed
+            if self.startup_script_id:
+                try:
+                    self.client.startup_scripts.delete_by_id(self.startup_script_id)
+                    logger.info("Cleaned up startup script after failed instance creation")
+                except:
+                    pass  # Don't fail if cleanup fails
+                self.startup_script_id = None
             return False
     
     def wait_for_instance_ready(self, timeout: int = 1800) -> bool:

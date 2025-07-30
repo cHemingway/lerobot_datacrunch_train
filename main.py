@@ -23,6 +23,10 @@ load_dotenv()
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
+# Disable info logging for paramiko to reduce noise
+paramiko_logger = logging.getLogger("paramiko")
+paramiko_logger.setLevel(logging.WARNING)  # Set to WARNING to reduce output noise
+
 
 class DatacrunchManager:
     """Manages Datacrunch spot instances for LeRobot training"""
@@ -298,11 +302,14 @@ class DatacrunchManager:
                     
                 ssh.close()
                 logger.info("Waiting for LeRobot installation to complete...")
-                time.sleep(60)
-                
-            except Exception as e:
+                time.sleep(30)
+
+            except paramiko.AuthenticationException:
+                logger.error("SSH authentication failed. Please check your SSH key is set up in datacrunch correctly")
+                return False
+            except paramiko.SSHException as e: # TODO: Catch more specific exceptions
                 logger.debug(f"SSH connection attempt failed: {e}")
-                time.sleep(60)
+                time.sleep(30)
                 
         logger.error("Timeout waiting for LeRobot installation")
         return False

@@ -214,12 +214,13 @@ class DatacrunchManager:
                     logger.debug(f"Failed to create instance in {location}: {e}")
                     continue  # Try the next location if this one fails
                 self.instance_id = response.id
+                self.location = location
                 break  # Exit loop if instance creation was successful
             if not self.instance_id:
                 logger.error("Failed to create instance in all locations")
                 return False
             
-            logger.info(f"Instance created with ID: {self.instance_id}")
+            logger.info(f"Instance created with ID: {self.instance_id} in location {self.location}")
             return True
             
         except Exception as e:

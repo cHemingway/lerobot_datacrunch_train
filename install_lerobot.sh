@@ -11,7 +11,10 @@ exec 1>/root/install_lerobot_log.out 2>&1
 
 apt-get update
 apt-get install -y curl git btop ffmpeg # FFmpeg is needed for lerobot to load videos
+
+# Install uv
 curl -LsSf https://astral.sh/uv/install.sh | sh
+source /root/.local/bin/env # We need to source this as we can't restart the shell
 
 # Install Hugging Face CLI and login with token
 uv tool install "huggingface_hub[cli]"

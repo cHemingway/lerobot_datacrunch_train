@@ -30,8 +30,14 @@ git clone http://github.com/huggingface/lerobot.git
 cd lerobot
 # We need python 3.11 as on 3.12 we try and build a package instead of using a prebuilt one
 uv sync --extra smolvla --python=3.11
+
+# Clean the uv cache to free up space
+# Saves approx 6GB which on a 50GB disk is significant
+uv cache clean
+
 # Flag we have finished
 cd /root
 touch installed_lerobot
-# Revert
+
+# Revert to original directory
 popd

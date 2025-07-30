@@ -8,7 +8,7 @@ This project automates the process of:
 - Checking instance pricing against your budget cap
 - Installing LeRobot and dependencies on the instance
 - Copying and running your training script
-- Auto-shutdown when training completes
+- Auto-delete instance when training completes
 
 ## Quick Start
 

@@ -307,7 +307,7 @@ class DatacrunchManager:
         logger.error("Timeout waiting for LeRobot installation")
         return False
     
-    def copy_and_run_training_script(self) -> bool:
+    def copy_and_run_training_script(self, client_id: str, client_secret: str) -> bool:
         """Copy training script to instance and execute it"""
         if not self.instance_ip:
             return False
@@ -316,16 +316,30 @@ class DatacrunchManager:
             logger.error("SSH key path not available for connection")
             return False
             
+        if not self.instance_id:
+            logger.error("Instance ID not available for termination")
+            return False
+            
         try:
+            # Read and prepare the training script with substituted variables
+            with open('./train.sh', 'r') as f:
+                script_content = f.read()
+            
+            # Substitute environment variables
+            script_content = script_content.replace('${DATACRUNCH_CLIENT_ID}', client_id)
+            script_content = script_content.replace('${DATACRUNCH_CLIENT_SECRET}', client_secret)
+            script_content = script_content.replace('${INSTANCE_ID}', self.instance_id)
+            
             ssh = paramiko.SSHClient()
             ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
             
             # Connect with SSH key only
             ssh.connect(self.instance_ip, username='root', key_filename=self.ssh_key_path)
             
-            # Copy training script
+            # Copy modified training script
             sftp = ssh.open_sftp()
-            sftp.put('./train.sh', '/root/train.sh')
+            with sftp.open('/root/train.sh', 'w') as remote_file:
+                remote_file.write(script_content)
             sftp.close()
             
             # Make executable and run
@@ -431,7 +445,7 @@ def main():
         
         # Copy and run training script
         logger.info("Copying and running training script...")
-        if not manager.copy_and_run_training_script():
+        if not manager.copy_and_run_training_script(client_id, client_secret):
             logger.error("Failed to start training")
             manager.cleanup_instance()
             sys.exit(1)

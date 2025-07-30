@@ -17,6 +17,33 @@ python -m lerobot.scripts.train \
   --num_workers=16 \
   --wandb.enable=true 
 
-# Shutdown the instance after training is complete
-echo "Training complete. Shutting down the instance."
-poweroff
+# Training complete - terminate the instance via Datacrunch API
+echo "Training complete. Terminating the instance via Datacrunch API."
+
+# Get access token from Datacrunch API
+echo "Getting access token..."
+ACCESS_TOKEN=$(curl -s -X POST "https://api.datacrunch.io/v1/oauth2/token" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "grant_type": "client_credentials",
+    "client_id": "${DATACRUNCH_CLIENT_ID}",
+    "client_secret": "${DATACRUNCH_CLIENT_SECRET}"
+  }' | jq -r '.access_token')
+
+if [ "$ACCESS_TOKEN" != "null" ] && [ "$ACCESS_TOKEN" != "" ]; then
+  echo "Access token obtained. Terminating instance ${INSTANCE_ID}..."
+  
+  # Terminate the instance
+  curl -s -X PUT "https://api.datacrunch.io/v1/instances" \
+    -H "Content-Type: application/json" \
+    -H "Authorization: Bearer $ACCESS_TOKEN" \
+    -d '{
+      "id": ["${INSTANCE_ID}"],
+      "action": "delete"
+    }'
+  
+  echo "Instance termination request sent."
+else
+  echo "Failed to get access token! Please check your client ID and secret."
+  exit 1
+fi

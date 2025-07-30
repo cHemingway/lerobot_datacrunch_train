@@ -10,7 +10,7 @@ trap 'exec 2>&4 1>&3' 0 1 2 3
 exec 1>/root/install_lerobot_log.out 2>&1
 
 apt-get update
-apt-get install -y curl git btop ffmpeg # FFmpeg is needed for lerobot to load videos
+apt-get install -y curl git btop ffmpeg jq # FFmpeg is needed for lerobot to load videos, jq for JSON parsing
 
 # Install uv
 curl -LsSf https://astral.sh/uv/install.sh | sh

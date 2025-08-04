@@ -112,8 +112,13 @@ class DatacrunchManager:
     def get_available_instances(self) -> List[Any]:
         """Get available instance types with pricing"""
         try:
-            instances = self.client.instance_types.get()
-            return instances
+            instances = self.client.instance_types.get() # All instance types
+            available_instance_types = self.client.instances.get_availabilities() # Which are available
+            # Flatten the list of available instances
+            # Format = [{'location_code': 'FIN-01', 'availabilities': ["CPU.4V", "GPU.8V"]}, ...]
+            available_instance_types = [id for loc in available_instance_types for id in loc['availabilities']]
+            # Filter instances to only those that are available
+            return [inst for inst in instances if inst.instance_type in available_instance_types]
         except Exception as e:
             logger.error(f"Failed to get instance types: {e}")
             return []

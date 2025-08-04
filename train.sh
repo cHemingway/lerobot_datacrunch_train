@@ -27,7 +27,8 @@ echo "Training complete. Terminating the instance via Datacrunch API."
 
 # Get access token from Datacrunch API
 echo "Getting access token..."
-ACCESS_TOKEN=$(curl -s -X POST "https://api.datacrunch.io/v1/oauth2/token" \
+ACCESS_TOKEN=$(curl -s --retry 5 --retry-all-errors \
+  -X POST "https://api.datacrunch.io/v1/oauth2/token" \
   -H "Content-Type: application/json" \
   -d '{
     "grant_type": "client_credentials",
@@ -39,7 +40,8 @@ if [ "$ACCESS_TOKEN" != "null" ] && [ "$ACCESS_TOKEN" != "" ]; then
   echo "Access token obtained. Terminating instance ${INSTANCE_ID}..."
   
   # Terminate the instance
-  curl -s -X PUT "https://api.datacrunch.io/v1/instances" \
+  curl -s --retry 5 --retry-all-errors --retry-all-errors \
+    -X PUT "https://api.datacrunch.io/v1/instances" \
     -H "Content-Type: application/json" \
     -H "Authorization: Bearer $ACCESS_TOKEN" \
     -d '{

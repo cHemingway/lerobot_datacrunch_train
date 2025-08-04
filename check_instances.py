@@ -24,7 +24,7 @@ def check_instances(client_id: str, client_secret: str, gpu_filter: str = "", ma
         
         print(f"Available Datacrunch Instances")
         print("=" * 80)
-        print(f"{'Instance Type':<25} {'GPU':<15} {'GPU Count':<10} {'Spot Price/hr':<15} {'On-Demand/hr':<15}")
+        print(f"{'Instance Type':<25} {'GPU':<15} {'GPU Count':<10} {'CPU Count':<10} {'Spot Price/hr':<15} {'On-Demand/hr':<15}")
         print("-" * 80)
         
         filtered_instances = []
@@ -33,6 +33,7 @@ def check_instances(client_id: str, client_secret: str, gpu_filter: str = "", ma
             # Get GPU information - instance.gpu is a dict
             gpu_name = instance.gpu.get('description', 'N/A')
             gpu_count = instance.gpu.get('number_of_gpus', 0)
+            cpu_count = instance.cpu.get('number_of_cores', 0)
             spot_price = instance.spot_price_per_hour
             ondemand_price = instance.price_per_hour
             
@@ -44,9 +45,9 @@ def check_instances(client_id: str, client_secret: str, gpu_filter: str = "", ma
                 continue
                 
             filtered_instances.append(instance)
-            
-            print(f"{instance.instance_type:<25} {gpu_name:<15} {gpu_count:<10} ${spot_price:<14.3f} ${ondemand_price:<14.3f}")
-        
+
+            print(f"{instance.instance_type:<25} {gpu_name:<15} {gpu_count:<10} {cpu_count:<10} ${spot_price:<14.3f} ${ondemand_price:<14.3f}")
+
         print(f"\nFound {len(filtered_instances)} instances matching criteria")
         
         if gpu_filter:

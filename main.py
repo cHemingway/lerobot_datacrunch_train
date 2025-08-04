@@ -31,7 +31,7 @@ paramiko_logger.setLevel(logging.WARNING)  # Set to WARNING to reduce output noi
 class DatacrunchManager:
     """Manages Datacrunch spot instances for LeRobot training"""
 
-    def __init__(self, client_id: str, client_secret: str, price_cap: float = 1.0, required_gpu: str = "H100", image_name: str = "ubuntu-24.04-cuda-12.8-open", ssh_key_path: str = ""):
+    def __init__(self, client_id: str, client_secret: str, price_cap: float = 1.0, required_gpu: str = "H100", required_cpu: int = 4, image_name: str = "ubuntu-24.04-cuda-12.8-open", ssh_key_path: str = ""):
         """
         Initialize the Datacrunch manager
         
@@ -46,6 +46,7 @@ class DatacrunchManager:
         self.client = DataCrunchClient(client_id, client_secret)
         self.price_cap = price_cap
         self.required_gpu = required_gpu
+        self.required_cpu = required_cpu
         self.instance_id = None
         self.instance_ip = None
         self.startup_script_id = None
@@ -133,7 +134,10 @@ class DatacrunchManager:
             
             if self.required_gpu.lower() not in gpu_name.lower():
                 continue
-                
+
+            if instance.cpu["number_of_cores"] < self.required_cpu:
+                continue
+
             # Check pricing
             spot_price = instance.spot_price_per_hour
             if spot_price <= self.price_cap:
@@ -398,6 +402,7 @@ def main():
     # Configuration
     price_cap = float(os.getenv('PRICE_CAP', '1.0'))
     required_gpu = os.getenv('REQUIRED_GPU', 'H100')
+    required_cpu = int(os.getenv('REQUIRED_CPU', '4'))
     image_name = os.getenv('IMAGE_NAME', 'ubuntu-24.04-cuda-12.8-open')
 
     # Validate required environment variables
@@ -427,7 +432,7 @@ def main():
     assert wandb_token is not None
     assert image_name is not None
 
-    manager = DatacrunchManager(client_id, client_secret, price_cap, required_gpu, image_name, ssh_key_path)
+    manager = DatacrunchManager(client_id, client_secret, price_cap, required_gpu, required_cpu, image_name, ssh_key_path)
     
     # Validate SSH key is available and properly configured
     if not manager.validate_ssh_setup():

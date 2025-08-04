@@ -4,6 +4,11 @@
 cd /root/lerobot
 source ./.venv/bin/activate
 
+# Needed to avoid warning about parallelism in tokenizers
+# https://github.com/huggingface/lerobot/issues/1377
+TOKENIZERS_PARALLELISM=false
+export TOKENIZERS_PARALLELISM
+
 python -m lerobot.scripts.train \
   --dataset.repo_id=cHemingway/move_purple_tape \
   --policy.type=act \

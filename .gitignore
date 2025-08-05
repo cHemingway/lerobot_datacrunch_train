@@ -32,3 +32,8 @@ logs/
 *.key
 id_rsa*
 id_ed25519*
+
+# IDE and editor files
+.vscode/
+.idea/
+*.sublime-workspace

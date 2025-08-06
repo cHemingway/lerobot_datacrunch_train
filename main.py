@@ -308,6 +308,16 @@ class DatacrunchManager:
                 if result == "ready":
                     logger.info("LeRobot installation completed!")
                     ssh.close()
+                    
+                    # Delete the startup script since installation is complete
+                    if self.startup_script_id:
+                        try:
+                            self.client.startup_scripts.delete_by_id(self.startup_script_id)
+                            logger.info(f"Startup script {self.startup_script_id} deleted after successful installation")
+                            self.startup_script_id = None
+                        except Exception as e:
+                            logger.warning(f"Failed to delete startup script after installation: {e}")
+                    
                     return True
                     
                 ssh.close()
@@ -388,6 +398,8 @@ class DatacrunchManager:
                 logger.info(f"Startup script {self.startup_script_id} deleted")
             except Exception as e:
                 logger.error(f"Failed to delete startup script: {e}")
+        else:
+            logger.debug("Startup script already deleted or not created")
 
 
 def main():

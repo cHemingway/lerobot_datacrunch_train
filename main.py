@@ -55,6 +55,28 @@ class DatacrunchManager:
         self.image_name = image_name
         self.ssh_key_path = self._find_ssh_key_path(ssh_key_path)
 
+    def _connect_ssh(self, timeout: int = 10) -> paramiko.SSHClient:
+        """Create and return a connected SSH client using instance IP and key."""
+        if not self.instance_ip:
+            raise RuntimeError("Instance IP not set; cannot connect via SSH")
+        if not self.ssh_key_path:
+            raise RuntimeError("SSH key path not set; cannot connect via SSH")
+
+        ssh = paramiko.SSHClient()
+        ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        ssh.connect(self.instance_ip, username='root', key_filename=self.ssh_key_path, timeout=timeout)
+        return ssh
+
+    @staticmethod
+    def _poll_until(check_fn, interval: int = 30, timeout: int = 1800) -> bool:
+        """Poll check_fn until it returns truthy or timeout expires."""
+        start = time.time()
+        while time.time() - start < timeout:
+            if check_fn():
+                return True
+            time.sleep(interval)
+        return False
+
     def _find_ssh_key_path(self, provided_path: str) -> str:
         """Find SSH private key file, checking common locations"""
         if provided_path and os.path.exists(provided_path):
@@ -250,39 +272,30 @@ class DatacrunchManager:
         """Wait for instance to be ready and get IP address"""
         if not self.instance_id:
             return False
-            
-        start_time = time.time()
-        
-        while time.time() - start_time < timeout:
+
+        def check_ready() -> bool:
             try:
                 instances = self.client.instances.get()
-                instance = None
-                for inst in instances:
-                    if inst.id == self.instance_id:
-                        instance = inst
-                        break
-                
+                instance = next((i for i in instances if i.id == self.instance_id), None)
                 if not instance:
                     logger.error(f"Instance {self.instance_id} not found")
                     return False
-                
                 status = instance.status
-                
                 if status == 'running':
                     self.instance_ip = instance.ip
                     if self.instance_ip:
                         logger.info(f"Instance ready! IP: {self.instance_ip}")
                         return True
-                        
                 logger.info(f"Instance status: {status}, waiting...")
-                time.sleep(30)
-                
+                return False
             except Exception as e:
                 logger.error(f"Error checking instance status: {e}")
-                time.sleep(30)
-                
-        logger.error("Timeout waiting for instance to be ready")
-        return False
+                return False
+
+        ok = self._poll_until(check_ready, interval=20, timeout=timeout)
+        if not ok:
+            logger.error("Timeout waiting for instance to be ready")
+        return ok
     
     def wait_for_lerobot_installation(self, timeout: int = 1800) -> bool:
         """Wait for LeRobot installation to complete via SSH"""
@@ -292,25 +305,23 @@ class DatacrunchManager:
         if not self.ssh_key_path:
             logger.error("SSH key path not available for connection")
             return False
-            
-        start_time = time.time()
-        
-        while time.time() - start_time < timeout:
+
+        # Keep a single SSH connection alive across polling iterations
+        try:
+            ssh = self._connect_ssh(timeout=10)
+        except paramiko.AuthenticationException:
+            logger.error("SSH authentication failed. Please check your SSH key is set up in datacrunch correctly")
+            return False
+        except paramiko.SSHException as e:
+            logger.debug(f"SSH connection attempt failed: {e}")
+            return False
+
+        def check_installed() -> bool:
             try:
-                ssh = paramiko.SSHClient()
-                ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-                
-                # Connect with SSH key only
-                ssh.connect(self.instance_ip, username='root', key_filename=self.ssh_key_path, timeout=10)
-                
-                # Check if installation is complete
                 stdin, stdout, stderr = ssh.exec_command('test -f /root/installed_lerobot && echo "ready"')
                 result = stdout.read().decode().strip()
-                
                 if result == "ready":
                     logger.info("LeRobot installation completed!")
-                    ssh.close()
-                    
                     # Delete the startup script since installation is complete
                     if self.startup_script_id:
                         try:
@@ -319,22 +330,24 @@ class DatacrunchManager:
                             self.startup_script_id = None
                         except Exception as e:
                             logger.warning(f"Failed to delete startup script after installation: {e}")
-                    
                     return True
-                    
-                ssh.close()
-                logger.info("Waiting for LeRobot installation to complete...")
-                time.sleep(30)
-
-            except paramiko.AuthenticationException:
-                logger.error("SSH authentication failed. Please check your SSH key is set up in datacrunch correctly")
                 return False
-            except paramiko.SSHException as e: # TODO: Catch more specific exceptions
-                logger.debug(f"SSH connection attempt failed: {e}")
-                time.sleep(30)
-                
-        logger.error("Timeout waiting for LeRobot installation")
-        return False
+            except paramiko.SSHException as e:
+                logger.debug(f"SSH command failed during polling: {e}")
+                return False
+
+        try:
+            logger.info("Waiting for LeRobot installation to complete...")
+            ok = self._poll_until(check_installed, interval=10, timeout=timeout)
+        finally:
+            try:
+                ssh.close()
+            except Exception:
+                pass
+
+        if not ok:
+            logger.error("Timeout waiting for LeRobot installation")
+        return ok
     
     def copy_and_run_training_script(self, client_id: str, client_secret: str) -> bool:
         """Copy training script to instance and execute it"""
@@ -361,11 +374,7 @@ class DatacrunchManager:
                     },
                 )
             
-            ssh = paramiko.SSHClient()
-            ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-            
-            # Connect with SSH key only
-            ssh.connect(self.instance_ip, username='root', key_filename=self.ssh_key_path)
+            ssh = self._connect_ssh()
             
             # Copy modified training script
             sftp = ssh.open_sftp()

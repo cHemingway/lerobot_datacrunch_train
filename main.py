@@ -10,6 +10,7 @@ import sys
 import time
 import logging
 from typing import Dict, List, Optional, Any
+from string import Template
 import paramiko
 from datacrunch import DataCrunchClient
 from datacrunch.exceptions import APIException
@@ -49,6 +50,7 @@ class DatacrunchManager:
         self.required_cpu = required_cpu
         self.instance_id = None
         self.instance_ip = None
+        self.location = None
         self.startup_script_id = None
         self.image_name = image_name
         self.ssh_key_path = self._find_ssh_key_path(ssh_key_path)
@@ -101,7 +103,7 @@ class DatacrunchManager:
             
             if permissions not in ['600', '400']:
                 logger.warning(f"SSH key file has permissive permissions: {permissions}")
-                logger.warning("Consider running: chmod 600 {self.ssh_key_path}")
+                logger.warning(f"Consider running: chmod 600 {self.ssh_key_path}")
             
             logger.info(f"SSH key validated: {self.ssh_key_path} (permissions: {permissions})")
             return True
@@ -127,45 +129,45 @@ class DatacrunchManager:
     def find_suitable_instance(self) -> Optional[Dict]:
         """Find an instance type that meets GPU and price requirements"""
         instances = self.get_available_instances()
-        
-        for instance in instances:
-            # Get GPU information from InstanceType object
-            gpu_name = instance.gpu['description'] if instance.gpu else ''
-            
-            if self.required_gpu.lower() not in gpu_name.lower():
-                continue
 
-            if instance.cpu["number_of_cores"] < self.required_cpu:
-                continue
+        def is_match(inst: Any) -> bool:
+            gpu_name = inst.gpu['description'] if inst.gpu else ''
+            return (
+                self.required_gpu.lower() in gpu_name.lower()
+                and inst.cpu["number_of_cores"] >= self.required_cpu
+                and inst.spot_price_per_hour <= self.price_cap
+            )
 
-            # Check pricing
-            spot_price = instance.spot_price_per_hour
-            if spot_price <= self.price_cap:
-                logger.info(f"Found suitable instance: {instance.instance_type} - GPU: {gpu_name} - Price: ${spot_price}/hour")
-                # Convert InstanceType object to dict-like structure for compatibility
-                return {
-                    'name': instance.instance_type,
-                    'instance_type': instance.instance_type,
-                    'gpu': instance.gpu,
-                    'spot_price_per_hour': instance.spot_price_per_hour,
-                    'price_per_hour': instance.price_per_hour
-                }
-                
+        match = next((i for i in instances if is_match(i)), None)
+        if match:
+            gpu_name = match.gpu['description'] if match.gpu else ''
+            logger.info(
+                f"Found suitable instance: {match.instance_type} - GPU: {gpu_name} - Price: ${match.spot_price_per_hour}/hour"
+            )
+            return {
+                'name': match.instance_type,
+                'instance_type': match.instance_type,
+                'gpu': match.gpu,
+                'spot_price_per_hour': match.spot_price_per_hour,
+                'price_per_hour': match.price_per_hour
+            }
         logger.warning(f"No suitable instance found with {self.required_gpu} GPU under ${self.price_cap}/hour")
         return None
+
+    @staticmethod
+    def _substitute_vars(template_text: str, mapping: Dict[str, str]) -> str:
+        """Substitute ${VAR} tokens with mapping values using string.Template."""
+        return Template(template_text).safe_substitute(mapping)
     
     def create_startup_script(self, hf_token: str, wandb_token: str) -> str:
         """Create startup script with environment variables substituted"""
         try:
-            # Read the install_lerobot.sh file
+            # Read and substitute variables in the install script
             with open('install_lerobot.sh', 'r') as f:
-                script_content = f.read()
-            
-            # Substitute environment variables
-            script_content = script_content.replace('${HUGGINGFACE_TOKEN}', hf_token)
-            script_content = script_content.replace('${WANDB_TOKEN}', wandb_token)
-            
-            return script_content
+                return self._substitute_vars(
+                    f.read(),
+                    {"HUGGINGFACE_TOKEN": hf_token, "WANDB_TOKEN": wandb_token},
+                )
             
         except FileNotFoundError:
             logger.error("install_lerobot.sh file not found")
@@ -208,7 +210,7 @@ class DatacrunchManager:
                 # Simplified instance config - remove potentially problematic parameters
                 instance_config = {
                     'instance_type': instance_type['instance_type'],
-                    'image': 'ubuntu-24.04-cuda-12.8-open',
+                    'image': self.image_name,
                     'ssh_key_ids': ssh_keys_ids,  # Use the SSH keys we fetched
                     'hostname': 'lerobot-training',
                     'description': 'LeRobot training instance',
@@ -344,18 +346,20 @@ class DatacrunchManager:
             return False
             
         if not self.instance_id:
-            logger.error("Instance ID not available for termination")
+            logger.error("Instance ID not available for variable substitution")
             return False
             
         try:
             # Read and prepare the training script with substituted variables
             with open('./train.sh', 'r') as f:
-                script_content = f.read()
-            
-            # Substitute environment variables
-            script_content = script_content.replace('${DATACRUNCH_CLIENT_ID}', client_id)
-            script_content = script_content.replace('${DATACRUNCH_CLIENT_SECRET}', client_secret)
-            script_content = script_content.replace('${INSTANCE_ID}', self.instance_id)
+                script_content = self._substitute_vars(
+                    f.read(),
+                    {
+                        'DATACRUNCH_CLIENT_ID': client_id,
+                        'DATACRUNCH_CLIENT_SECRET': client_secret,
+                        'INSTANCE_ID': self.instance_id,
+                    },
+                )
             
             ssh = paramiko.SSHClient()
             ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())

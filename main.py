@@ -34,7 +34,7 @@ paramiko_logger.setLevel(logging.WARNING)  # Set to WARNING to reduce output noi
 class DatacrunchManager:
     """Manages Datacrunch spot instances for LeRobot training"""
 
-    def __init__(self, client_id: str, client_secret: str, price_cap: float = 1.0, required_gpu: str = "H100", required_cpu: int = 4, image_name: str = "ubuntu-24.04-cuda-12.8-open", ssh_key_path: str = ""):
+    def __init__(self, client_id: str, client_secret: str, price_cap: float = 1.0, required_gpu: str = "H100", required_cpu: int = 4, image_name: str = "ubuntu-24.04-cuda-12.8-open", ssh_key_path: str = "", hostname: str = "lerobot-training"):
         """
         Initialize the Datacrunch manager
         
@@ -45,6 +45,7 @@ class DatacrunchManager:
             required_gpu: Required GPU type (e.g., "H100", "RTX4090")
             image_name: OS image name to use
             ssh_key_path: Path to SSH private key file
+            hostname: Hostname to assign to the Datacrunch instance
         """
         self.client = DataCrunchClient(client_id, client_secret)
         self.price_cap = price_cap
@@ -56,6 +57,7 @@ class DatacrunchManager:
         self.startup_script_id = None
         self.image_name = image_name
         self.ssh_key_path = self._find_ssh_key_path(ssh_key_path)
+        self.hostname = hostname
 
     def _connect_ssh(self, timeout: int = 10) -> paramiko.SSHClient:
         """Create and return a connected SSH client using instance IP and key."""
@@ -236,7 +238,7 @@ class DatacrunchManager:
                     'instance_type': instance_type['instance_type'],
                     'image': self.image_name,
                     'ssh_key_ids': ssh_keys_ids,  # Use the SSH keys we fetched
-                    'hostname': 'lerobot-training',
+                    'hostname': self.hostname,
                     'description': 'LeRobot training instance',
                     'is_spot': True,
                     'startup_script_id': startup_script.id,
@@ -466,7 +468,24 @@ def main():
     """Main execution function"""
     parser = argparse.ArgumentParser(description="Datacrunch LeRobot training orchestrator")
     parser.add_argument("--open-wandb", action="store_true", help="Open the Weights & Biases run URL when it appears in the training log")
+    parser.add_argument(
+        "--hostname",
+        default=os.getenv('DATACRUNCH_HOSTNAME', 'lerobot-training'),
+        help=(
+            "Hostname to assign to the Datacrunch instance. Must contain only letters, digits, or '-' and be shorter than 60 chars "
+            "(default: lerobot-training or $DATACRUNCH_HOSTNAME if set)"
+        ),
+    )
     args = parser.parse_args()
+    
+    # Validate hostname: only alphanumeric or dash, and length < 60
+    hostname = args.hostname or ""
+    if not hostname or len(hostname) >= 60 or any(not (c.isalnum() or c == '-') for c in hostname):
+        logger.error(
+            "Invalid --hostname: '%s'. It must contain only letters, digits, or '-' and be shorter than 60 characters.",
+            hostname,
+        )
+        sys.exit(1)
     # Environment variables
     client_id = os.getenv('DATACRUNCH_CLIENT_ID')
     client_secret = os.getenv('DATACRUNCH_CLIENT_SECRET')
@@ -507,7 +526,7 @@ def main():
     assert wandb_token is not None
     assert image_name is not None
 
-    manager = DatacrunchManager(client_id, client_secret, price_cap, required_gpu, required_cpu, image_name, ssh_key_path)
+    manager = DatacrunchManager(client_id, client_secret, price_cap, required_gpu, required_cpu, image_name, ssh_key_path, hostname=args.hostname)
     
     # Validate SSH key is available and properly configured
     if not manager.validate_ssh_setup():

@@ -9,6 +9,8 @@ import os
 import sys
 import time
 import logging
+import argparse
+import webbrowser
 from typing import Dict, List, Optional, Any
 from string import Template
 import paramiko
@@ -395,6 +397,51 @@ class DatacrunchManager:
         except Exception as e:
             logger.error(f"Failed to copy and run training script: {e}")
             return False
+
+    def watch_and_open_wandb(self, timeout: int = 120, interval: int = 10) -> Optional[str]:
+        """Poll the remote training log until a wandb.ai URL is found, then open it locally."""
+        if not self.instance_ip or not self.ssh_key_path:
+            logger.error("Instance IP or SSH key not available for wandb watcher")
+            return None
+
+        deadline = time.time() + timeout
+        ssh: Optional[paramiko.SSHClient] = None
+        try:
+            ssh = self._connect_ssh(timeout=10)
+            logger.info("Watching remote training log for Weights & Biases URL...")
+            cmd = "grep -Eo 'https://wandb\\.ai/[^[:space:]]+' /root/training.log | head -n 1 || true"
+            while time.time() < deadline:
+                try:
+                    _, stdout, _ = ssh.exec_command(cmd)
+                    url = stdout.read().decode().strip()
+                    if not url:
+                        time.sleep(interval)
+                        continue
+
+                    logger.info(f"Found W&B run URL: {url}")
+                    try:
+                        webbrowser.open(url, new=2)
+                        logger.info("Opened W&B URL in your default browser")
+                    except Exception as e:
+                        logger.warning(f"Could not open browser automatically: {e}")
+                        logger.info(f"Open this URL manually: {url}")
+                    return url
+                except paramiko.SSHException as e:
+                    logger.debug(f"SSH command error while watching W&B URL: {e}")
+                    try:
+                        if ssh:
+                            ssh.close()
+                    except Exception:
+                        pass
+                    ssh = self._connect_ssh(timeout=10)
+            logger.warning("Timed out waiting for W&B URL in training log")
+            return None
+        finally:
+            try:
+                if ssh:
+                    ssh.close()
+            except Exception:
+                pass
     
     def cleanup_instance(self):
         """Delete the instance and startup script"""
@@ -417,6 +464,9 @@ class DatacrunchManager:
 
 def main():
     """Main execution function"""
+    parser = argparse.ArgumentParser(description="Datacrunch LeRobot training orchestrator")
+    parser.add_argument("--open-wandb", action="store_true", help="Open the Weights & Biases run URL when it appears in the training log")
+    args = parser.parse_args()
     # Environment variables
     client_id = os.getenv('DATACRUNCH_CLIENT_ID')
     client_secret = os.getenv('DATACRUNCH_CLIENT_SECRET')
@@ -496,6 +546,9 @@ def main():
         logger.info("Training started successfully!")
         logger.info(f"Instance IP: {manager.instance_ip}")
         logger.info("Training will auto-shutdown the instance when complete.")
+
+        if args.open_wandb:
+            manager.watch_and_open_wandb(timeout=120, interval=10)
         
     except KeyboardInterrupt:
         logger.info("Interrupted by user")
